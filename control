@@ -1,7 +1,7 @@
 Package: com.lnx.showtouch
 Name: ShowTouch
-Depends: mobilesubstrate, org.thebigboss.libcolorpicker
-Version: 1.0.3
+Depends: mobilesubstrate, preferenceloader, org.thebigboss.libcolorpicker
+Version: 1.0.4
 Architecture: iphoneos-arm
 Description: Shows where you touch the screen
 Maintainer: LonestarX

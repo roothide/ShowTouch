@@ -3,6 +3,7 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <SpringBoard/SpringBoard.h>
 #import <Foundation/Foundation.h>
+#import <roothide.h>
 
 #define kIdentifier @"com.lnx.showtouch"
 #define kSettingsChangedNotification (CFStringRef)@"com.lnx.showtouch/ReloadPrefs"
@@ -10,8 +11,8 @@
 #define kColorChangedNotification (CFStringRef)@"com.lnx.showtouch/colorChanged"
 #define kSettingsResetNotification (CFStringRef)@"com.lnx.showtouch/settingsReset"
 
-#define kColorPath @"/var/mobile/Library/Preferences/com.lnx.showtouch.color.plist"
-#define kSettingsPath @"/var/mobile/Library/Preferences/com.lnx.showtouch.plist"
+#define kColorPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.color.plist")
+#define kSettingsPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.plist")
 
 @interface TouchWindow : UIWindow
 @property (nonatomic, strong) NSTimer *hideTimer;
@@ -27,7 +28,8 @@ static TouchWindow *touchWindow3;
 
 static CAShapeLayer *circleShape;
 static UIColor *touchColor;
-static NSInteger enabled;
+static BOOL enabled = YES;
+static NSInteger runmode;
 
 static CGFloat touchSize;
 
@@ -42,7 +44,7 @@ static CGFloat touchSize;
 %hook UITouchesEvent
 
 -(void)_setHIDEvent:(id)arg1 {
-  if (enabled == 1){
+  if (enabled){
     dispatch_async(dispatch_get_main_queue(), ^{
 
       SBApplication *currentApplication = [[objc_getClass("SpringBoard") sharedApplication] _accessibilityFrontMostApplication];
@@ -181,8 +183,23 @@ static void reloadPrefs() {
 		prefs = [NSDictionary dictionaryWithContentsOfFile:kSettingsPath];
 	}
 
-	enabled = [prefs objectForKey:@"enabled"] ? [[prefs objectForKey:@"enabled"] integerValue] : 0;
+	runmode = [prefs objectForKey:@"runmode"] ? [[prefs objectForKey:@"runmode"] integerValue] : 1; //always show by default
   touchSize = [prefs objectForKey:@"touchSize"] ? [[prefs objectForKey:@"touchSize"] floatValue] : 30;
+
+  switch(runmode) {
+    case 0:
+      enabled = NO;
+      break;
+
+    case 1:
+      enabled = YES;
+      break;
+
+    case 2:
+      //enabled = UIScreen.mainScreen.captured;//hang forever
+      enabled = NO; //disabled by default
+      break;
+  }
 }
 
 %ctor {
@@ -192,15 +209,11 @@ static void reloadPrefs() {
 	CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)reloadColorPrefs, kColorChangedNotification, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
   NSLog(@"ios 11");
 
-  if (enabled == 2) {
-    if (@available(iOS 11.0, *)) {
-        [[NSNotificationCenter defaultCenter] addObserverForName: UIScreenCapturedDidChangeNotification
-            object: nil
-            queue: nil
-            usingBlock: ^ (NSNotification * notification) {
-              enabled = UIScreen.mainScreen.captured ? 1 : 0;
-        }];
-    } else {
-    }
-  }
+  [[NSNotificationCenter defaultCenter] addObserverForName: UIScreenCapturedDidChangeNotification
+      object: nil
+      queue: nil
+      usingBlock: ^ (NSNotification * notification) {
+        if(runmode == 2) enabled = UIScreen.mainScreen.captured;
+  }];
+
 }

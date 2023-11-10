@@ -1,8 +1,9 @@
 #include "SWTRootListController.h"
 #import <UIKit/UIKit.h>
+#import <roothide.h>
 
-#define kColorPath @"/var/mobile/Library/Preferences/com.lnx.showtouch.color.plist"
-#define kSettingsPath @"/var/mobile/Library/Preferences/com.lnx.showtouch.plist"
+#define kColorPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.color.plist")
+#define kSettingsPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.plist")
 #define kSettingsChangedNotification (CFStringRef)@"com.lnx.showtouch/ReloadPrefs"
 #define kColorChangedNotification (CFStringRef)@"com.lnx.showtouch/colorChanged"
 
