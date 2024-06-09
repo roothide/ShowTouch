@@ -5,11 +5,15 @@
 #import <Foundation/Foundation.h>
 #import <roothide.h>
 
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+#if DEBUG == 0
+#define NSLog(...)
+#endif
+
 #define kIdentifier @"com.lnx.showtouch"
 #define kSettingsChangedNotification (CFStringRef)@"com.lnx.showtouch/ReloadPrefs"
-#define kScreenRecordChanged (CFStringRef)@"captured"
 #define kColorChangedNotification (CFStringRef)@"com.lnx.showtouch/colorChanged"
-#define kSettingsResetNotification (CFStringRef)@"com.lnx.showtouch/settingsReset"
 
 #define kColorPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.color.plist")
 #define kSettingsPath jbroot(@"/var/mobile/Library/Preferences/com.lnx.showtouch.plist")
@@ -17,14 +21,30 @@
 @interface TouchWindow : UIWindow
 @property (nonatomic, strong) NSTimer *hideTimer;
 @end
+
+@interface TouchViewController : UIViewController
+@end
+
 @implementation TouchWindow
 -(BOOL)_ignoresHitTest {
   return YES;
 }
 @end
-static TouchWindow *touchWindow1;
-static TouchWindow *touchWindow2;
-static TouchWindow *touchWindow3;
+
+@implementation TouchViewController
+- (BOOL)shouldAutorotate {
+  return NO;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  return UIInterfaceOrientationMaskPortrait;
+}
+
+-(UIInterfaceOrientation)preferredInterfaceOrientationForPresentation
+{
+  return UIInterfaceOrientationPortrait;
+}
+@end
 
 static CAShapeLayer *circleShape;
 static UIColor *touchColor;
@@ -41,123 +61,116 @@ static CGFloat touchSize;
 -(SBApplication*)_accessibilityFrontMostApplication;
 @end
 
+TouchWindow* makeWindow(CGRect frame)
+{
+    TouchWindow* w = nil;
+    
+    UIWindowScene* theScene=nil;
+    for (UIWindowScene* windowScene in [UIApplication sharedApplication].connectedScenes) {
+        NSLog(@"windowScene=%@ %@ state=%ld", windowScene, windowScene.windows, (long)windowScene.activationState);
+        if(!theScene && windowScene.activationState==UISceneActivationStateForegroundInactive)
+            theScene = windowScene;
+        if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+            theScene = windowScene;
+            break;
+        }
+    }
+    w = [[TouchWindow alloc] initWithWindowScene:theScene];
+    [w setFrame:frame];
+    
+    return w;
+}
+
+NSMutableArray* gTouchesWindows = nil;
+
+void showtouches(UITouchesEvent* touches)
+{
+  NSMutableArray* currentTouches = [[[touches valueForKey:@"_allTouchesMutable"] allObjects] mutableCopy];
+  NSLog(@"currentTouches=(%lu): %@", currentTouches.count, currentTouches);
+
+  for(int i=gTouchesWindows.count; i<currentTouches.count; i++) {
+    TouchWindow* window = makeWindow(CGRectZero);
+    window.rootViewController = [[TouchViewController alloc] init];
+    gTouchesWindows[i] = window;
+  }
+  for(int i=currentTouches.count; i<gTouchesWindows.count; i++) {
+    TouchWindow* w = gTouchesWindows[i];
+    w.hidden = YES;
+  }
+
+  for (int i = 0; i < currentTouches.count; i++) {
+
+    UITouch* touch = currentTouches[i];
+    TouchWindow* window = gTouchesWindows[i];
+
+    NSLog(@"touch.window[%d]=%d %ld/%ld,%ld/%ld, %@", i,touch.window.isHidden, 
+    touch.window.rootViewController.interfaceOrientation, touch.window.windowScene.interfaceOrientation, 
+    window.rootViewController.interfaceOrientation, window.windowScene.interfaceOrientation, 
+    touch.window);
+    
+    BOOL shouldShowTouch = ![touch.window isKindOfClass:%c(ICSSecureWindow)];
+
+    if (!shouldShowTouch) {
+      NSLog(@"shouldShowTouch=%d", shouldShowTouch);
+      window.hidden = YES;
+      continue;
+    }
+
+    CGRect screen = [UIScreen mainScreen].nativeBounds;
+    screen.size.width /= [UIScreen mainScreen].scale;
+    screen.size.height /= [UIScreen mainScreen].scale;
+    CGPoint touchLocation = [[touch valueForKey:@"_locationInWindow"] CGPointValue];
+    NSLog(@"touchLocation=%@, screen=%@", NSStringFromCGPoint(touchLocation), NSStringFromCGRect(screen));
+
+    //if TouchWindow was not rotated by app
+    if(window.rootViewController.interfaceOrientation == UIInterfaceOrientationPortrait)
+    {
+      switch (touch.window.rootViewController.interfaceOrientation)
+      {
+          case UIInterfaceOrientationPortrait:
+              break;
+              
+          case UIInterfaceOrientationLandscapeRight:
+              touchLocation = CGPointMake(screen.size.width - touchLocation.y, touchLocation.x);
+              break;
+              
+          case UIInterfaceOrientationLandscapeLeft:
+              touchLocation = CGPointMake(touchLocation.y, screen.size.height - touchLocation.x);
+              break;
+              
+          case UIInterfaceOrientationPortraitUpsideDown:
+              touchLocation = CGPointMake(screen.size.width - touchLocation.x, screen.size.height - touchLocation.y);
+              break;
+              
+          default:
+              break;
+      }
+    }
+    NSLog(@"new touchLocation = %@", NSStringFromCGPoint(touchLocation));
+
+    window.bounds = CGRectMake(touchLocation.x, touchLocation.y, touchSize, touchSize);
+    window.center = CGPointMake(touchLocation.x, touchLocation.y);
+    window.windowLevel = UIWindowLevelStatusBar + 100000;
+    window.backgroundColor = touchColor;
+    window.layer.cornerRadius = touchSize / 2;
+    window.userInteractionEnabled = NO;
+    window.hidden = NO;
+  }
+}
+
 %hook UITouchesEvent
 
 -(void)_setHIDEvent:(id)arg1 {
-  if (enabled){
+  // NSLog(@"_setHIDEvent: %@", self);
+  // NSLog(@"arg1=%@", arg1);
+  // NSLog(@"_windows=%@", [self _windows]);
+  
+  if (enabled) {
     dispatch_async(dispatch_get_main_queue(), ^{
-
-      SBApplication *currentApplication = [[objc_getClass("SpringBoard") sharedApplication] _accessibilityFrontMostApplication];
-
-      NSMutableArray *currentTouches;
-      if (@available(iOS 11.0, *)) {
-        currentTouches = [[[self valueForKey:@"_allTouchesMutable"] allObjects] mutableCopy];
-      } else {
-        currentTouches = [[[self valueForKey:@"_touches"] allObjects] mutableCopy];
-      }
-      if (currentTouches.count == 0) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-        touchWindow1.hidden = YES;
-        touchWindow2.hidden = YES;
-        touchWindow3.hidden = YES;
-
-        touchWindow1 = nil;
-        touchWindow2 = nil;
-        touchWindow3 = nil;
-        });
-      }
-      else {
-        if (currentTouches.count == 1) {
-          touchWindow2.hidden = YES;
-          touchWindow2 = nil;
-          touchWindow3.hidden = YES;
-          touchWindow3 = nil;
-        }
-        else if (currentTouches.count == 2) {
-          touchWindow3.hidden = YES;
-          touchWindow3 = nil;
-        }
-
-
-        for (int i = 0; i < currentTouches.count; i++) {
-          UITouch *touch = currentTouches[i];
-          NSLog(@"%@ - %@ - %@", currentApplication, [UIApplication sharedApplication], touch.window);
-          BOOL shouldShowTouch = NO;
-          if (@available(iOS 11.0, *)) {
-            NSLog(@"ios 11");
-            shouldShowTouch = YES;
-          }
-          else {
-            NSLog(@"ios 10");
-            if ((!currentApplication && [touch.window isKindOfClass:%c(FBRootWindow)]) || ![touch.window isKindOfClass:%c(FBRootWindow)]) {
-              shouldShowTouch = YES;
-            }
-            else {
-              shouldShowTouch = NO;
-            }
-          }
-          if (shouldShowTouch) {
-          CGPoint touchLocation = [[touch valueForKey:@"_locationInWindow"] CGPointValue];
-          switch (i) {
-            case 0: {
-              dispatch_async(dispatch_get_main_queue(), ^{
-                if (!touchWindow1) {
-                  touchWindow1 = [[TouchWindow alloc] initWithFrame:CGRectMake(touchLocation.x, touchLocation.y, touchSize, touchSize)];
-                }
-                CGRect touchFrame = touchWindow1.bounds;
-                touchFrame.size.width = touchFrame.size.height = touchSize;
-                touchWindow1.bounds = touchFrame;
-                touchWindow1.backgroundColor = touchColor;
-                touchWindow1.center = CGPointMake(touchLocation.x, touchLocation.y);
-                touchWindow1.windowLevel = UIWindowLevelStatusBar + 100000;
-                touchWindow1.userInteractionEnabled = NO;
-                touchWindow1.layer.cornerRadius = touchWindow1.bounds.size.width / 2;
-                touchWindow1.hidden = NO;
-              });
-              break;
-            }
-            case 1: {
-              dispatch_async(dispatch_get_main_queue(), ^{
-                if (!touchWindow2) {
-                  touchWindow2 = [[TouchWindow alloc] initWithFrame:CGRectMake(touchLocation.x, touchLocation.y, touchSize, touchSize)];
-                }
-                CGRect touchFrame = touchWindow2.bounds;
-                touchFrame.size.width = touchFrame.size.height = touchSize;
-                touchWindow2.bounds = touchFrame;
-                touchWindow2.backgroundColor = touchColor;
-                touchWindow2.center = CGPointMake(touchLocation.x, touchLocation.y);
-                touchWindow2.windowLevel = UIWindowLevelStatusBar + 100000;
-                touchWindow2.userInteractionEnabled = NO;
-                touchWindow2.layer.cornerRadius = touchWindow2.bounds.size.width / 2;
-                touchWindow2.hidden = NO;
-              });
-              break;
-            }
-            case 2: {
-              dispatch_async(dispatch_get_main_queue(), ^{
-                if (!touchWindow3) {
-                  touchWindow3 = [[TouchWindow alloc] initWithFrame:CGRectMake(touchLocation.x, touchLocation.y, touchSize, touchSize)];
-                }
-                CGRect touchFrame = touchWindow3.bounds;
-                touchFrame.size.width = touchFrame.size.height = touchSize;
-                touchWindow3.bounds = touchFrame;
-                touchWindow3.backgroundColor = touchColor;
-                touchWindow3.center = CGPointMake(touchLocation.x, touchLocation.y);
-                touchWindow3.windowLevel = UIWindowLevelStatusBar + 100000;
-                touchWindow3.userInteractionEnabled = NO;
-                touchWindow3.layer.cornerRadius = touchWindow3.bounds.size.width / 2;
-                touchWindow3.hidden = NO;
-              });
-              break;
-            }
-            default:
-              break;
-          }
-        }
-      }
-    }
-  });
+      showtouches(self);
+    });
   }
+
   %orig;
 }
 %end
@@ -167,6 +180,7 @@ static void reloadColorPrefs() {
 	touchColor = [preferences objectForKey:@"touchColor"] ? LCPParseColorString([preferences objectForKey:@"touchColor"], @"#FFFFFF") : [UIColor redColor];
 }
 
+bool prefsinited=false;
 static void reloadPrefs() {
 	CFPreferencesAppSynchronize((CFStringRef)kIdentifier);
 
@@ -196,8 +210,10 @@ static void reloadPrefs() {
       break;
 
     case 2:
-      //enabled = UIScreen.mainScreen.captured;//hang forever
-      enabled = NO; //disabled by default
+      if(prefsinited) 
+        enabled = UIScreen.mainScreen.captured; //hang forever in ctor in springboard
+      else 
+        enabled = NO; //disabled by default
       break;
   }
 }
@@ -205,9 +221,10 @@ static void reloadPrefs() {
 %ctor {
 	reloadPrefs();
 	reloadColorPrefs();
+  prefsinited = true;
 	CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)reloadPrefs, kSettingsChangedNotification, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 	CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)reloadColorPrefs, kColorChangedNotification, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-  NSLog(@"ios 11");
+  NSLog(@"ShowTouch loading");
 
   [[NSNotificationCenter defaultCenter] addObserverForName: UIScreenCapturedDidChangeNotification
       object: nil
@@ -216,4 +233,5 @@ static void reloadPrefs() {
         if(runmode == 2) enabled = UIScreen.mainScreen.captured;
   }];
 
+  gTouchesWindows = [[NSMutableArray alloc] init];
 }

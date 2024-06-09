@@ -15,6 +15,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 after-install::
 	install.exec "killall -9 SpringBoard"
+	install.exec "killall -9 InCallService"
 	
 SUBPROJECTS += showtouchprefs
 include $(THEOS_MAKE_PATH)/aggregate.mk
