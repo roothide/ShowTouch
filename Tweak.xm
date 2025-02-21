@@ -22,27 +22,12 @@
 @property (nonatomic, strong) NSTimer *hideTimer;
 @end
 
-@interface TouchViewController : UIViewController
-@end
-
 @implementation TouchWindow
 -(BOOL)_ignoresHitTest {
   return YES;
 }
-@end
-
-@implementation TouchViewController
-- (BOOL)shouldAutorotate {
-  return NO;
-}
-
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-  return UIInterfaceOrientationMaskPortrait;
-}
-
--(UIInterfaceOrientation)preferredInterfaceOrientationForPresentation
-{
-  return UIInterfaceOrientationPortrait;
+-(BOOL)canBecomeKeyWindow {
+    return NO;
 }
 @end
 
@@ -90,7 +75,6 @@ void showtouches(UITouchesEvent* touches)
 
   for(int i=gTouchesWindows.count; i<currentTouches.count; i++) {
     TouchWindow* window = makeWindow(CGRectZero);
-    window.rootViewController = [[TouchViewController alloc] init];
     gTouchesWindows[i] = window;
   }
   for(int i=currentTouches.count; i<gTouchesWindows.count; i++) {
@@ -121,32 +105,6 @@ void showtouches(UITouchesEvent* touches)
     screen.size.height /= [UIScreen mainScreen].scale;
     CGPoint touchLocation = [[touch valueForKey:@"_locationInWindow"] CGPointValue];
     NSLog(@"touchLocation=%@, screen=%@", NSStringFromCGPoint(touchLocation), NSStringFromCGRect(screen));
-
-    //if TouchWindow was not rotated by app
-    if(window.rootViewController.interfaceOrientation == UIInterfaceOrientationPortrait)
-    {
-      switch (touch.window.rootViewController.interfaceOrientation)
-      {
-          case UIInterfaceOrientationPortrait:
-              break;
-              
-          case UIInterfaceOrientationLandscapeRight:
-              touchLocation = CGPointMake(screen.size.width - touchLocation.y, touchLocation.x);
-              break;
-              
-          case UIInterfaceOrientationLandscapeLeft:
-              touchLocation = CGPointMake(touchLocation.y, screen.size.height - touchLocation.x);
-              break;
-              
-          case UIInterfaceOrientationPortraitUpsideDown:
-              touchLocation = CGPointMake(screen.size.width - touchLocation.x, screen.size.height - touchLocation.y);
-              break;
-              
-          default:
-              break;
-      }
-    }
-    NSLog(@"new touchLocation = %@", NSStringFromCGPoint(touchLocation));
 
     window.bounds = CGRectMake(touchLocation.x, touchLocation.y, touchSize, touchSize);
     window.center = CGPointMake(touchLocation.x, touchLocation.y);
